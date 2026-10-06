@@ -7,7 +7,7 @@
 An MLP classifies MNIST digits, the network is composed of two hidden layer, trained for 20 epochs.
 
 <details>
-<summary><b>MLP implementation</b> (click to expand)</summary>
+<summary><b>MLP implementation</b></summary>
 
 ```python
 class MLP(nn.Module):
@@ -38,13 +38,12 @@ simply harder to optimize, which motivates residual connections.
 
 ### Exercise 1.2 — Adding Residual Connections
 
-`ResidualMLP` groups the hidden layers into residual blocks computing $y = \text{ReLU}(x + F(x))$,
-with $F$ = Linear → ReLU → Linear. For the same `depth` the plain and residual networks have the same layers, the same number
+ResidualMLP groups the hidden layers into residual blocks. For the same depth the plain and residual networks have the same layers, the same number
 of parameters and, with the same seed, identical initial weights: the skip connections are the only
 difference.
 
 <details>
-<summary><b>ResidualMLP implementation</b> (click to expand)</summary>
+<summary><b>ResidualMLP implementation</b></summary>
 
 ```python
 class ResidualMLPBlock(nn.Module):
@@ -89,11 +88,11 @@ dataset like MNIST it also show that deep networks are not so usefull and a simp
 
 #### Extra — Gradient analysis
 
-To understand *why* the deep plain MLP fails, we measure the gradient norm of each linear layer on a
+To understand why the deep plain MLP fails, we measure the gradient norm of each linear layer on a
 single training batch, for every network, before and after training.
 
 <details>
-<summary><b>Gradient analysis code</b> (click to expand)</summary>
+<summary><b>Gradient analysis code</b></summary>
 
 ```python
 def grad_norms_per_layer(model, x, y):
@@ -102,12 +101,10 @@ def grad_norms_per_layer(model, x, y):
     return [m.weight.grad.norm().item() for m in model.modules() if isinstance(m, nn.Linear)]
 
 
-# A single training batch, the same for every network
 train_loader = get_mnist(batch_size=config_12["batch_size"], val_set_size=config_12["val_set_size"],
                          seed=config_12["seed"])[0]
 x, y = (t.to(device) for t in next(iter(train_loader)))
 
-# Every network of the sweep, with the initial weights and after training
 grad_norms = {}
 for trained_model, _, cfg in results_12.values():
     torch.manual_seed(cfg["seed"])
@@ -116,7 +113,6 @@ for trained_model, _, cfg in results_12.values():
     for stage, model in [("iniziale", init_model), ("post-training", trained_model)]:
         grad_norms[(cfg["architecture"], cfg["depth"], stage)] = grad_norms_per_layer(model, x, y)
 
-# Ratio between the first and the last hidden layer (both 64x64)
 ratios = pd.Series({k: norms[1] / norms[-2] for k, norms in grad_norms.items()}).unstack([2, 0])
 ```
 
@@ -142,11 +138,11 @@ until it prevents them from being trained. In MLPs with skip connections, the gr
 ### Exercise 1.3 — Rinse and Repeat (but with a CNN)
 
 The same comparison is repeated with CNNs on CIFAR-10. Both networks follow the CIFAR ResNet of the
-original paper. The residual CNN uses torchvision's `BasicBlock`, the plain CNN uses `PlainBlock`, the same layers without the
+original paper. The residual CNN uses torchvision's BasicBlock, the plain CNN uses PlainBlock, the same layers without the
 skip connection. As before, both start from identical weights.
 
 <details>
-<summary><b>CNN implementation</b> (click to expand)</summary>
+<summary><b>CNN implementation</b></summary>
 
 ```python
 class PlainBlock(nn.Module):
@@ -198,25 +194,20 @@ MODELS["ResidualCNN"] = lambda **kw: CIFARNet(BasicBlock, **kw)
 
 ![Plain vs residual CNN](assets/lab1/cnn_with_residual.png)
 
-**Deeper plain CNNs do not always work better**: the best one has 14 layers (84% test accuracy),
+Deeper plain CNNs do not always work better: the best one has 14 layers (84% test accuracy),
 then accuracy drops to 81%, 70% and 21% at 98 layers, with the training loss following the same
 trend, the degradation problem again.
-**Even deeper residual CNNs do work better**: accuracy grows with depth from 79% to about 86% and
+Even deeper residual CNNs do work better: accuracy grows with depth from 79% to about 86% and
 the training loss keeps decreasing. Unlike MNIST, CIFAR-10 is hard enough for extra depth to be
 useful, but only when the network can be trained.
 
 ### Exercise 2.3 — Explaining the predictions of a CNN
 
-**Class Activation Maps** (Zhou et al., 2016) show where a CNN looks to recognize a class. For a
-network ending with Global Average Pooling and one linear layer, the score of class $c$ is the
-spatial average of the map $M_c(x,y) = \sum_k w_{c,k} A_k(x,y)$ plus the bias, where $A_k$ are the
-last feature maps and $w_{c,k}$ the weights of class $c$: $M_c$ decomposes the score over the image.
-The map is computed for the predicted class, normalized and upsampled onto the image. The method is
-applied to the best residual CNN of Exercise 1.3 and to a ResNet-18 pre-trained on ImageNet, on
-Imagenette images.
+Using the best ResidualCNN from Exercise 1.3, the notebook implements CAM to visualize which image regions drive each classification decision, 
+and compares it with a ResNet-18 pre-trained on ImageNet, applied to Imagenette.
 
 <details>
-<summary><b>CAM implementation</b> (click to expand)</summary>
+<summary><b>CAM implementation</b></summary>
 
 ```python
 def compute_cam(feature_fn, fc, images):
@@ -232,10 +223,8 @@ def compute_cam(feature_fn, fc, images):
     return cams[:, 0].cpu(), preds.cpu()
 
 
-# CIFAR-10 network of Exercise 1.3
 cams, preds = compute_cam(cifar_model.feature_maps, cifar_model.fc, images)
 
-# Pre-trained ResNet-18: everything except avgpool and fc
 resnet_trunk = nn.Sequential(*list(resnet.children())[:-2])
 cams, preds = compute_cam(resnet_trunk, resnet.fc, images)
 ```
@@ -246,9 +235,11 @@ cams, preds = compute_cam(resnet_trunk, resnet.fc, images)
 
 ![CAM on Imagenette](assets/lab1/CAM2.png)
 
+Both models attend to the objects rather than the background, the ResidualCNN produces maps centred on the cat, the ships, the frogs and even the airplane printed on a poster,
+while the pre-trained ResNet-18 highlights the discriminative parts of each object
+
 Both networks focus on the objects rather than the background: the cat, the ships, the airplane on
 the poster, the body of the tench (not the hand), the face of the dog, the French horn. The maps
-also explain the mistakes: the chain saw becomes a *lumbermill* because the network looks at the
-whole woodworking scene, and the gas pump becomes an *oxygen mask* because it focuses on the hand
-in the foreground. Since the maps come from the last 8×8 or 7×7 feature maps, they locate the
-object only approximately, not its exact contour.
+also explain the mistakes: the chain saw becomes a lumbermill because the network looks at the
+whole woodworking scene, and the gas pump becomes an oxygen mask because it focuses on the hand
+in the foreground.

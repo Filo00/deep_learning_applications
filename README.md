@@ -4,10 +4,7 @@
 
 ### Exercise 1.1 — A baseline MLP
 
-An MLP classifies MNIST digits: the flattened image is projected to `hidden_dim` (Linear + ReLU), passes
-through `depth` hidden layers (Linear + ReLU) and a final Linear layer that outputs the 10 logits.
-With `depth=1` it is the "two narrow layers" baseline (784 → 64 → 64 → 10). `depth` counts only the
-hidden → hidden layers, so the same definition can be reused for the residual network of Exercise 1.2.
+An MLP classifies MNIST digits, the network is composed of two hidden layer, trained for 20 epochs.
 
 <details>
 <summary><b>MLP implementation</b> (click to expand)</summary>
@@ -36,14 +33,13 @@ class MLP(nn.Module):
 
 All networks converge within a few epochs. Depth does not help: the shallow networks reach about
 97.5% validation accuracy, while the 16-layer one stays around 96% and trains less stably. Since the
-deeper networks also have a higher **training** loss, this is not overfitting: deeper plain MLPs are
+deeper networks also have a higher training loss, deeper plain MLPs are
 simply harder to optimize, which motivates residual connections.
 
 ### Exercise 1.2 — Adding Residual Connections
 
 `ResidualMLP` groups the hidden layers into residual blocks computing $y = \text{ReLU}(x + F(x))$,
-with $F$ = Linear → ReLU → Linear. The ReLU is applied after the sum, as in ResNet, so $F(x)$ can be
-negative. For the same `depth` the plain and residual networks have the same layers, the same number
+with $F$ = Linear → ReLU → Linear. For the same `depth` the plain and residual networks have the same layers, the same number
 of parameters and, with the same seed, identical initial weights: the skip connections are the only
 difference.
 
@@ -86,11 +82,10 @@ class ResidualMLP(nn.Module):
 | **ResidualMLP** | ![](assets/lab1/dla-lab1_2-residual-train_loss.png) | ![](assets/lab1/dla-lab1_2-residual-val_accuracy.png) |
 
 The plain MLP degrades with depth, and with 32 hidden layers it does not learn at all: its training
-loss stays at $\ln 10 \approx 2.30$ (a uniform prediction) and its accuracy at about 11%. With residual
+loss stays at $\approx 2.30$ and its accuracy at about 0.1. With residual
 connections every depth trains equally well (above 99% training and 97–98% validation accuracy), so
 a 32-layer residual MLP is as easy to train as a 2-layer one, confirming the ResNet result. On an easy
-dataset like MNIST, however, extra depth stops *hurting* but does not *help*. Note that the residual
-plots use a much narrower y-axis.
+dataset like MNIST it also show that deep networks are not so usefull and a simple MLP make a good work too on a dataset like MNIST.
 
 #### Extra — Gradient analysis
 
@@ -137,23 +132,17 @@ ratios = pd.Series({k: norms[1] / norms[-2] for k, norms in grad_norms.items()})
 | 16 | 1.6 × 10⁻⁵ | 5.79 | 0.64 | 5.81 |
 | 32 | 6.4 × 10⁻¹² | 6.2 × 10⁻¹³ | 0.42 | 13.99 |
 
-*Ratio between the gradient norm of the first and the last hidden layer: ≈ 1 means the gradient
-reaches the first layers intact, ≪ 1 means it vanishes.*
+*Ratio between the gradient norm of the first and the last hidden layer*
 
-The plain MLP suffers from **vanishing gradients**: the norm decays exponentially from the output to
-the input (a straight line on the log scale), by about 12 orders of magnitude with 32 layers. This
-matches the theory: PyTorch initializes `nn.Linear` weights with variance $1/(3 \cdot \text{fan}_{\text{in}})$,
-so each Linear + ReLU layer divides the gradient norm by about $\sqrt{6} \approx 2.4$, and
-$2.4^{32} \approx 10^{12}$. At 32 layers the first layers get gradients around $10^{-13}$, far below
-Adam's $\varepsilon = 10^{-8}$, so they never move. In the residual MLP the identity path carries the
-gradient back unchanged and the ratio stays close to 1 at every depth.
+The plain MLP suffers from vanishing gradients: the norm decays from the output to
+the input by about 10 orders of magnitude with 32 layers.
+In plain MLPs, the gradient is attenuated at every layer as it flows back towards the input: the deeper the network, the weaker it is when it reaches the first layers,
+until it prevents them from being trained. In MLPs with skip connections, the gradient has a direct path through which it reaches the first layers without being attenuated, at any depth.
 
 ### Exercise 1.3 — Rinse and Repeat (but with a CNN)
 
 The same comparison is repeated with CNNs on CIFAR-10. Both networks follow the CIFAR ResNet of the
-original paper: a 3×3 stem, three stages of `depth` blocks with 16, 32 and 64 channels (32×32, 16×16,
-8×8), Global Average Pooling and a linear layer, for a total of 6 · `depth` + 2 layers. The residual
-CNN uses torchvision's `BasicBlock`; the plain CNN uses `PlainBlock`, the same layers without the
+original paper. The residual CNN uses torchvision's `BasicBlock`, the plain CNN uses `PlainBlock`, the same layers without the
 skip connection. As before, both start from identical weights.
 
 <details>
@@ -211,7 +200,7 @@ MODELS["ResidualCNN"] = lambda **kw: CIFARNet(BasicBlock, **kw)
 
 **Deeper plain CNNs do not always work better**: the best one has 14 layers (84% test accuracy),
 then accuracy drops to 81%, 70% and 21% at 98 layers, with the training loss following the same
-trend — the degradation problem again, even though every convolution is followed by BatchNorm.
+trend, the degradation problem again.
 **Even deeper residual CNNs do work better**: accuracy grows with depth from 79% to about 86% and
 the training loss keeps decreasing. Unlike MNIST, CIFAR-10 is hard enough for extra depth to be
 useful, but only when the network can be trained.

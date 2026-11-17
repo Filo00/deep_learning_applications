@@ -1,8 +1,8 @@
-# Deep Learning Applications — Laboratories
+# Deep Learning Applications: Laboratories
 
-## Lab 1 — Convolutional Neural Networks
+## Lab 1: Convolutional Neural Networks
 
-### Exercise 1.1 — A baseline MLP
+### Exercise 1.1: A baseline MLP
 
 An MLP classifies MNIST digits, the network is composed of two hidden layer, trained for 20 epochs.
 
@@ -36,7 +36,7 @@ All networks converge within a few epochs. Depth does not help: the shallow netw
 deeper networks also have a higher training loss, deeper plain MLPs are
 simply harder to optimize, which motivates residual connections.
 
-### Exercise 1.2 — Adding Residual Connections
+### Exercise 1.2: Adding Residual Connections
 
 ResidualMLP groups the hidden layers into residual blocks. For the same depth the plain and residual networks have the same layers, the same number
 of parameters and, with the same seed, identical initial weights: the skip connections are the only
@@ -86,7 +86,7 @@ connections every depth trains equally well (above 99% training and 97–98% val
 a 32-layer residual MLP is as easy to train as a 2-layer one, confirming the ResNet result. On an easy
 dataset like MNIST it also show that deep networks are not so usefull and a simple MLP make a good work too on a dataset like MNIST.
 
-#### Extra — Gradient analysis
+#### Extra: Gradient analysis
 
 To understand why the deep plain MLP fails, we measure the gradient norm of each linear layer on a
 single training batch, for every network, before and after training.
@@ -135,7 +135,7 @@ the input by about 10 orders of magnitude with 32 layers.
 In plain MLPs, the gradient is attenuated at every layer as it flows back towards the input: the deeper the network, the weaker it is when it reaches the first layers,
 until it prevents them from being trained. In MLPs with skip connections, the gradient has a direct path through which it reaches the first layers without being attenuated, at any depth.
 
-### Exercise 1.3 — Rinse and Repeat (but with a CNN)
+### Exercise 1.3: Rinse and Repeat (but with a CNN)
 
 The same comparison is repeated with CNNs on CIFAR-10. Both networks follow the CIFAR ResNet of the
 original paper. The residual CNN uses torchvision's BasicBlock, the plain CNN uses PlainBlock, the same layers without the
@@ -201,7 +201,7 @@ Even deeper residual CNNs do work better: accuracy grows with depth from 79% to 
 the training loss keeps decreasing. Unlike MNIST, CIFAR-10 is hard enough for extra depth to be
 useful, but only when the network can be trained.
 
-### Exercise 2.3 — Explaining the predictions of a CNN
+### Exercise 2.3: Explaining the predictions of a CNN
 
 Using the best ResidualCNN from Exercise 1.3, the notebook implements CAM to visualize which image regions drive each classification decision, 
 and compares it with a ResNet-18 pre-trained on ImageNet, applied to Imagenette.
@@ -245,16 +245,21 @@ whole woodworking scene, and the gas pump becomes an oxygen mask because it focu
 in the foreground.
 
 
-## Lab 2 — Deep Reinforcement Learning
 
-### Exercise 1 — Improving the REINFORCE implementation
+
+
+
+
+
+## Lab 2: Deep Reinforcement Learning
+
+### Exercise 1: Improving the REINFORCE implementation
 
 The goal of this exercise is to get REINFORCE working on
 [CartPole](https://gymnasium.farama.org/environments/classic_control/cart_pole/) and to replace the
 running average of training rewards, a noisy and misleading metric, with a proper evaluation
 protocol. The original implementation is refactored into a small `src/` package (`policy.py` for the
-networks, `reinforce.py` for the algorithm, `viz.py` for plots and animations) that the notebook
-imports, so the same code is reused unchanged in all the following exercises.
+networks, `reinforce.py` for the algorithm, `viz.py` for plots and animations).
 
 The policy is an MLP with one hidden layer of 128 units that maps the state to the logits of the
 actions; actions are sampled from the resulting categorical distribution. After each episode the
@@ -280,12 +285,22 @@ def evaluate_policy(env, policy, M):
 def reinforce(env, policy, num_episodes=1000, gamma=0.99, lr=1e-2, N=25, M=10,
               standardize=True, value_net=None):
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
-    ...
+    if value_net is not None:
+        value_optimizer = torch.optim.Adam(value_net.parameters(), lr=lr)
+    eval_episodes, eval_rewards, eval_lengths = [], [], []
+
     for episode in range(1, num_episodes + 1):
         states, log_probs, rewards = run_episode(env, policy)
         returns = compute_returns(rewards, gamma)
         weights = returns
-        ...
+
+        if value_net is not None:
+            values = value_net(states)
+            weights = returns - values.detach()
+            value_optimizer.zero_grad()
+            F.mse_loss(values, returns).backward()
+            value_optimizer.step()
+
         if standardize and len(weights) > 1:
             weights = (weights - weights.mean()) / (weights.std() + 1e-8)
 
@@ -296,7 +311,12 @@ def reinforce(env, policy, num_episodes=1000, gamma=0.99, lr=1e-2, N=25, M=10,
 
         if episode % N == 0:
             avg_reward, avg_length = evaluate_policy(env, policy, M)
-            ...
+            eval_episodes.append(episode)
+            eval_rewards.append(avg_reward)
+            eval_lengths.append(avg_length)
+            print(f"Episode {episode} | avg reward: {avg_reward:.1f} | avg length: {avg_length:.1f}")
+
+    return eval_episodes, eval_rewards, eval_lengths
 ```
 
 </details>
@@ -305,7 +325,7 @@ The agent is trained for 1000 episodes and evaluated every `N = 25` episodes ove
 As in the original implementation, returns are standardized within each episode (the effect of this
 choice is studied in Exercise 2).
 
-![REINFORCE on CartPole — evaluation metrics](assets/lab2/lab2_ex1_eval.png)
+![REINFORCE on CartPole: evaluation metrics](assets/lab2/lab2_ex1_eval.png)
 
 In CartPole the agent receives +1 for every step the pole stays up, so the average total reward and
 the average episode length coincide; the two metrics will differ in Lunar Lander. The agent learns

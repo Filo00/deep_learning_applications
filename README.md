@@ -411,21 +411,53 @@ standardization and with a learning rate of 3e-3; it is trained for 4000 episode
 <summary><b>Lunar Lander training</b> (click to expand)</summary>
 
 ```python
-env_lunar = gym.make("LunarLander-v3")
+@torch.no_grad()
+def evaluate_policy(env, policy, M):
+    total_rewards, lengths = [], []
+    for _ in range(M):
+        _, _, rewards = run_episode(env, policy)
+        total_rewards.append(sum(rewards))
+        lengths.append(len(rewards))
+    return sum(total_rewards) / M, sum(lengths) / M
 
-torch.manual_seed(SEED)
-env_lunar.reset(seed=SEED)
-policy_lunar = PolicyNet(env_lunar)
-value_net_lunar = ValueNet(env_lunar)
-episodes_lunar, rewards_lunar, lengths_lunar = reinforce(
-    env_lunar, policy_lunar, num_episodes=4000, lr=3e-3, N=200, M=10,
-    standardize=False, value_net=value_net_lunar,
-)
 
-plot_evaluation(episodes_lunar, rewards_lunar, lengths_lunar,
-                threshold=env_lunar.spec.reward_threshold, title="LunarLander")
-animate_episode("LunarLander-v3", policy_lunar)
+def reinforce(env, policy, num_episodes=1000, gamma=0.99, lr=1e-2, N=25, M=10,
+              standardize=True, value_net=None):
+    optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
+    if value_net is not None:
+        value_optimizer = torch.optim.Adam(value_net.parameters(), lr=lr)
+    eval_episodes, eval_rewards, eval_lengths = [], [], []
+
+    for episode in range(1, num_episodes + 1):
+        states, log_probs, rewards = run_episode(env, policy)
+        returns = compute_returns(rewards, gamma)
+        weights = returns
+
+        if value_net is not None:  # value baseline, used from Exercise 2
+            values = value_net(states)
+            weights = returns - values.detach()
+            value_optimizer.zero_grad()
+            F.mse_loss(values, returns).backward()
+            value_optimizer.step()
+
+        if standardize and len(weights) > 1:
+            weights = (weights - weights.mean()) / (weights.std() + 1e-8)
+
+        loss = -(log_probs * weights).mean()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if episode % N == 0:
+            avg_reward, avg_length = evaluate_policy(env, policy, M)
+            eval_episodes.append(episode)
+            eval_rewards.append(avg_reward)
+            eval_lengths.append(avg_length)
+            print(f"Episode {episode} | avg reward: {avg_reward:.1f} | avg length: {avg_length:.1f}")
+
+    return eval_episodes, eval_rewards, eval_lengths
 ```
+
 
 </details>
 

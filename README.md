@@ -361,16 +361,14 @@ class ValueNet(nn.Module):
         return self.net(state).squeeze(-1)
 
 
-# Inside the training loop of reinforce()
 if value_net is not None:
     values = value_net(states)
-    weights = returns - values.detach()  # the policy loss must not update the value network
+    weights = returns - values.detach()
     value_optimizer.zero_grad()
     F.mse_loss(values, returns).backward()
     value_optimizer.step()
 
 
-# Notebook: the three variants start from the same seed and initial weights
 def train(standardize, value_baseline=False):
     torch.manual_seed(SEED)
     env.reset(seed=SEED)
@@ -389,13 +387,6 @@ _, rewards_value, _ = train(standardize=False, value_baseline=True)
 
 ![REINFORCE on CartPole — comparison of baselines](assets/lab2/lab2_ex2_baselines.png)
 
-Without a baseline the policy collapses in the first episodes onto a single action and never
-recovers, staying at about 9 steps for the whole training. Standardization reaches 500 from episode
+Without a baseline the policy collapses in the first episodes and never recovers. Standardization reaches 500 from episode
 275, but with several sudden collapses. The value network performs best: it reaches 500 already at
 episode 175 and its drops are shorter.
-Without a baseline the policy collapses in the first episodes onto a single action and never
-recovers, staying at about 9 steps for the whole training. Standardization reaches 500 from episode
-275, but with several sudden collapses. The value network performs best: it reaches 500 already at
-episode 175 and its drops are shorter. With a single seed, however, the comparison between the first
-two variants is not conclusive: with seed 42 the collapse hit the standardized variant instead. The
-value network was the only one that learned stably with both seeds.

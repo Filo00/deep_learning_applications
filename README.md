@@ -247,10 +247,6 @@ in the foreground.
 
 
 
-
-
-
-
 ## Lab 2: Deep Reinforcement Learning
 
 ### Exercise 1: Improving the REINFORCE implementation
@@ -327,12 +323,79 @@ choice is studied in Exercise 2).
 
 ![REINFORCE on CartPole: evaluation metrics](assets/lab2/lab2_ex1_eval.png)
 
+
 In CartPole the agent receives +1 for every step the pole stays up, so the average total reward and
-the average episode length coincide; the two metrics will differ in Lunar Lander. The agent learns
-slowly at first (about 12 steps for the first 100 episodes, close to a random policy), then improves
-steadily and reaches the maximum of 500 steps around episode 525, above the "solved" threshold of
-475. Training, however, is not stable: around episode 675 the evaluation suddenly drops to 69 before
-recovering, and in the last evaluations it falls again to about 200–240. These collapses are typical
-of REINFORCE, whose gradient estimate from a single episode has a very high variance, and they are
-exactly what a running average of training rewards would smooth out and hide. They motivate the
-baselines of Exercise 2.
+the average episode length coincide, both curves rise together, reaching the maximum of 500 around episode 525.
+Training is not stable, though: the evaluation suddenly drops to 69 around episode 675 and again to about 200–240 at the end.
+The periodic evaluation makes these collapses, caused by the high variance of REINFORCE, clearly visible, while a running average would smooth them out. 
+They motivate the baselines of Exercise 2.
+
+
+### Exercise 2: REINFORCE with a value baseline
+
+Subtracting from the return $G_t$ any baseline that does not depend on the action leaves the expected
+gradient unchanged but can greatly reduce its variance. The exercise compares three variants on
+CartPole, all starting from the same seed and the same initial weights:
+
+- **no baseline**: the raw returns $G_t$ are used;
+- **standardization**: the returns are standardized within each episode, a baseline that is constant
+  for the whole episode (the default of the original implementation);
+- **value network**: a second network $\tilde{v}(s \mid \mathbf{w})$, with the same architecture as
+  the policy but a single output, estimates the value of each state and the policy is updated with
+  $G_t - \tilde{v}(s_t)$. The value network is trained separately, by regression on the returns.
+
+<details>
+<summary><b>Value network and baseline</b> (click to expand)</summary>
+
+```python
+class ValueNet(nn.Module):
+    def __init__(self, env, hidden_dim=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(env.observation_space.shape[0], hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, state):
+        return self.net(state).squeeze(-1)
+
+
+# Inside the training loop of reinforce()
+if value_net is not None:
+    values = value_net(states)
+    weights = returns - values.detach()  # the policy loss must not update the value network
+    value_optimizer.zero_grad()
+    F.mse_loss(values, returns).backward()
+    value_optimizer.step()
+
+
+# Notebook: the three variants start from the same seed and initial weights
+def train(standardize, value_baseline=False):
+    torch.manual_seed(SEED)
+    env.reset(seed=SEED)
+    policy = PolicyNet(env)
+    value_net = ValueNet(env) if value_baseline else None
+    return reinforce(env, policy, num_episodes=1000, N=25, M=10,
+                     standardize=standardize, value_net=value_net)
+
+
+episodes, rewards_std, _ = train(standardize=True)
+_, rewards_raw, _ = train(standardize=False)
+_, rewards_value, _ = train(standardize=False, value_baseline=True)
+```
+
+</details>
+
+![REINFORCE on CartPole — comparison of baselines](assets/lab2/lab2_ex2_baselines.png)
+
+Without a baseline the policy collapses in the first episodes onto a single action and never
+recovers, staying at about 9 steps for the whole training. Standardization reaches 500 from episode
+275, but with several sudden collapses. The value network performs best: it reaches 500 already at
+episode 175 and its drops are shorter.
+Without a baseline the policy collapses in the first episodes onto a single action and never
+recovers, staying at about 9 steps for the whole training. Standardization reaches 500 from episode
+275, but with several sudden collapses. The value network performs best: it reaches 500 already at
+episode 175 and its drops are shorter. With a single seed, however, the comparison between the first
+two variants is not conclusive: with seed 42 the collapse hit the standardized variant instead. The
+value network was the only one that learned stably with both seeds.

@@ -243,3 +243,76 @@ the poster, the body of the tench (not the hand), the face of the dog, the Frenc
 also explain the mistakes: the chain saw becomes a lumbermill because the network looks at the
 whole woodworking scene, and the gas pump becomes an oxygen mask because it focuses on the hand
 in the foreground.
+
+
+## Lab 2 — Deep Reinforcement Learning
+
+### Exercise 1 — Improving the REINFORCE implementation
+
+The goal of this exercise is to get REINFORCE working on
+[CartPole](https://gymnasium.farama.org/environments/classic_control/cart_pole/) and to replace the
+running average of training rewards, a noisy and misleading metric, with a proper evaluation
+protocol. The original implementation is refactored into a small `src/` package (`policy.py` for the
+networks, `reinforce.py` for the algorithm, `viz.py` for plots and animations) that the notebook
+imports, so the same code is reused unchanged in all the following exercises.
+
+The policy is an MLP with one hidden layer of 128 units that maps the state to the logits of the
+actions; actions are sampled from the resulting categorical distribution. After each episode the
+discounted returns $G_t$ are computed and the policy is updated by minimizing
+$-\frac{1}{T}\sum_t \log \pi(a_t \mid s_t)\, G_t$. Every `N` training episodes the training is
+paused and the current policy is run for `M` episodes without updating the weights, collecting the
+**average total reward** and the **average episode length**.
+
+<details>
+<summary><b>Evaluation and training loop</b> (click to expand)</summary>
+
+```python
+@torch.no_grad()
+def evaluate_policy(env, policy, M):
+    total_rewards, lengths = [], []
+    for _ in range(M):
+        _, _, rewards = run_episode(env, policy)
+        total_rewards.append(sum(rewards))
+        lengths.append(len(rewards))
+    return sum(total_rewards) / M, sum(lengths) / M
+
+
+def reinforce(env, policy, num_episodes=1000, gamma=0.99, lr=1e-2, N=25, M=10,
+              standardize=True, value_net=None):
+    optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
+    ...
+    for episode in range(1, num_episodes + 1):
+        states, log_probs, rewards = run_episode(env, policy)
+        returns = compute_returns(rewards, gamma)
+        weights = returns
+        ...
+        if standardize and len(weights) > 1:
+            weights = (weights - weights.mean()) / (weights.std() + 1e-8)
+
+        loss = -(log_probs * weights).mean()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if episode % N == 0:
+            avg_reward, avg_length = evaluate_policy(env, policy, M)
+            ...
+```
+
+</details>
+
+The agent is trained for 1000 episodes and evaluated every `N = 25` episodes over `M = 10` episodes.
+As in the original implementation, returns are standardized within each episode (the effect of this
+choice is studied in Exercise 2).
+
+![REINFORCE on CartPole — evaluation metrics](assets/lab2/lab2_ex1_eval.png)
+
+In CartPole the agent receives +1 for every step the pole stays up, so the average total reward and
+the average episode length coincide; the two metrics will differ in Lunar Lander. The agent learns
+slowly at first (about 12 steps for the first 100 episodes, close to a random policy), then improves
+steadily and reaches the maximum of 500 steps around episode 525, above the "solved" threshold of
+475. Training, however, is not stable: around episode 675 the evaluation suddenly drops to 69 before
+recovering, and in the last evaluations it falls again to about 200–240. These collapses are typical
+of REINFORCE, whose gradient estimate from a single episode has a very high variance, and they are
+exactly what a running average of training rewards would smooth out and hide. They motivate the
+baselines of Exercise 2.

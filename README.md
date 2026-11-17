@@ -390,3 +390,51 @@ _, rewards_value, _ = train(standardize=False, value_baseline=True)
 Without a baseline the policy collapses in the first episodes and never recovers. Standardization reaches 500 from episode
 275, but with several sudden collapses. The value network performs best: it reaches 500 already at
 episode 175 and its drops are shorter.
+
+
+### Exercise 3.1: Lunar Lander with REINFORCE
+
+The same implementation is applied to
+[Lunar Lander](https://gymnasium.farama.org/environments/box2d/lunar_lander/), a harder environment:
+the state has 8 components, there are 4 actions (do nothing, fire the left, main or right engine) and
+an episode lasts at most 1000 steps. The agent is rewarded for landing softly between the two flags
+(with a +100 bonus when it comes to rest), penalized for crashing (−100) and for every frame an engine
+is firing; the environment is considered solved at an average reward of 200. Unlike CartPole, here
+the average reward and the average episode length are different metrics: a long episode can mean
+that the lander hovers without landing.
+
+The agent uses the value network baseline of Exercise 2, which was the most stable variant, without
+standardization and with a learning rate of 3e-3; it is trained for 4000 episodes and evaluated every
+200 episodes over 10 episodes.
+
+<details>
+<summary><b>Lunar Lander training</b> (click to expand)</summary>
+
+```python
+env_lunar = gym.make("LunarLander-v3")
+
+torch.manual_seed(SEED)
+env_lunar.reset(seed=SEED)
+policy_lunar = PolicyNet(env_lunar)
+value_net_lunar = ValueNet(env_lunar)
+episodes_lunar, rewards_lunar, lengths_lunar = reinforce(
+    env_lunar, policy_lunar, num_episodes=4000, lr=3e-3, N=200, M=10,
+    standardize=False, value_net=value_net_lunar,
+)
+
+plot_evaluation(episodes_lunar, rewards_lunar, lengths_lunar,
+                threshold=env_lunar.spec.reward_threshold, title="LunarLander")
+animate_episode("LunarLander-v3", policy_lunar)
+```
+
+</details>
+
+![REINFORCE on Lunar Lander — evaluation metrics](assets/lab2/lab2_ex3_lunarlander_eval.png)
+
+The average reward grows from about −106, when the lander crashes within 90 steps, to the "solved"
+threshold, which it reaches once at episode 1800. After that it settles between 135 and 165,
+while the episode length rises to the 1000-step limit from episode 3200 on. The agent has learned
+the safe part of the task, slowing down and staying near the landing pad without crashing, but not
+to switch the engines off: it hovers until the time runs out, which the video of the trained agent
+confirms. This local optimum, where avoiding the −100 crash is easier to learn than earning the +100
+landing bonus.

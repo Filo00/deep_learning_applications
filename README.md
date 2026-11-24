@@ -470,3 +470,218 @@ the safe part of the task, slowing down and staying near the landing pad without
 to switch the engines off: it hovers until the time runs out, which the video of the trained agent
 confirms. This local optimum, where avoiding the −100 crash is easier to learn than earning the +100
 landing bonus.
+
+
+
+
+
+
+
+## Lab 3 — Transformers and HuggingFace
+
+The lab builds a sentiment classifier on the
+[Rotten Tomatoes](https://huggingface.co/datasets/cornell-movie-review-data/rotten_tomatoes) movie
+review dataset around [DistilBERT](https://huggingface.co/distilbert/distilbert-base-uncased),
+and compares three ways of using the pre-trained model: as a frozen feature extractor, fully
+fine-tuned, and fine-tuned efficiently with LoRA. The fine-tuning runs are logged on Weights & Biases.
+
+### Exercise 1 — A stable baseline
+
+**Dataset (1.1).** Rotten Tomatoes has three splits (8530 training, 1066 validation and 1066 test
+sentences) and two perfectly balanced classes, `neg` and `pos`. With balanced classes accuracy is a
+reliable metric, and it is used throughout the lab, also to select the best checkpoint.
+
+**Model and tokenizer (1.2).** The tokenizer splits each sentence into sub-word tokens and adds the
+special `[CLS]` and `[SEP]` tokens; with `padding=True` the sentences of a batch are padded to the
+longest one, and the `attention_mask` marks the padding positions. DistilBERT returns a
+768-dimensional vector for every token (`last_hidden_state` has shape `(batch, tokens, 768)`), and the
+vector of the first token, `[CLS]`, is used as a summary of the whole sentence.
+
+**Baseline (1.3).** A `feature-extraction` pipeline extracts the `[CLS]` vector of the last layer of
+the frozen DistilBERT for every sentence, and a linear SVM is trained on top of these features.
+
+<details>
+<summary><b>Feature extraction and SVM</b> (click to expand)</summary>
+
+```python
+extractor = pipeline("feature-extraction", model=model, tokenizer=tokenizer, device=device)
+
+
+def extract_cls(split):
+    """[CLS] vector of the last layer for every sentence of the split, and the labels."""
+    outs = extractor(KeyDataset(dataset[split], "text"), batch_size=64,
+                     return_tensors=True, tokenize_kwargs={"truncation": True})
+    X = np.stack([out[0, 0].cpu().numpy() for out in outs])
+    return X, np.array(dataset[split]["label"])
+
+
+X_train, y_train = extract_cls("train")
+X_val, y_val = extract_cls("validation")
+X_test, y_test = extract_cls("test")
+
+clf = SVC(kernel="linear").fit(X_train, y_train)
+baseline_val_acc = accuracy_score(y_val, clf.predict(X_val))
+baseline_test_acc = accuracy_score(y_test, clf.predict(X_test))
+```
+
+</details>
+
+The baseline reaches **81.9% validation accuracy and 80.7% test accuracy**. DistilBERT's weights
+are never updated here, so this measures how useful the generic pre-trained representation already
+is for sentiment classification: any gain of the following exercises comes from adapting the model to
+the task.
+
+### Exercise 2 — Fine-tuning DistilBERT
+
+The splits are tokenized with `Dataset.map(..., batched=True)`, which adds `input_ids` and
+`attention_mask` to every example. Only truncation is applied at this stage: padding is left to a
+`DataCollatorWithPadding`, which pads each batch to its longest sentence. The model is
+`AutoModelForSequenceClassification`, which adds to DistilBERT a new, randomly initialized
+classification head (`pre_classifier` + `classifier`) on top of the `[CLS]` token. It is trained end
+to end for 3 epochs with the HuggingFace `Trainer`, evaluating accuracy, precision, recall and F1 on
+the validation set after every epoch and restoring at the end the checkpoint with the best accuracy.
+
+<details>
+<summary><b>Tokenization, model and Trainer</b> (click to expand)</summary>
+
+```python
+def tokenize(batch):
+    return tokenizer(batch["text"], truncation=True)  # padding is done per batch by the collator
+
+
+tokenized = dataset.map(tokenize, batched=True)
+
+ft_model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_NAME, num_labels=2,
+    id2label=dict(enumerate(label_names)),
+    label2id={name: i for i, name in enumerate(label_names)},
+).to(device)
+
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=-1)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average="binary")
+    return {"accuracy": accuracy_score(labels, preds), "precision": precision, "recall": recall, "f1": f1}
+
+
+os.environ["WANDB_PROJECT"] = "dla-lab3-es2.3"
+training_args = TrainingArguments(
+    output_dir="checkpoints/distilbert-rotten-tomatoes",
+    learning_rate=2e-5,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=64,
+    num_train_epochs=3,
+    weight_decay=0.01,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    save_total_limit=1,
+    load_best_model_at_end=True,
+    metric_for_best_model="accuracy",
+    logging_steps=100,
+    fp16=torch.cuda.is_available(),
+    report_to="wandb",
+    run_name="distilbert_full_ft",
+    seed=SEED,
+)
+trainer = Trainer(
+    model=ft_model,
+    args=training_args,
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["validation"],
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+
+trainer.train()
+val_metrics = trainer.evaluate()
+test_metrics = trainer.evaluate(tokenized["test"], metric_key_prefix="test")
+```
+
+</details>
+
+| Epoch | Train loss | Val loss | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| 1 | 0.351 | 0.411 | 0.822 | 0.763 | 0.932 | 0.840 |
+| 2 | 0.250 | 0.389 | 0.848 | 0.833 | 0.871 | 0.851 |
+| 3 | 0.145 | 0.485 | **0.852** | 0.845 | 0.861 | 0.853 |
+
+Fine-tuning reaches **85.2% validation accuracy and 84.2% test accuracy**, +3.6 points over the
+frozen baseline on the test set. After the first epoch the model is biased towards the positive
+class (recall 0.93, precision 0.76); precision and recall become balanced in the following epochs
+(0.837 and 0.850 on the test set). From epoch 2 the validation loss rises while the training loss
+keeps falling: the model overfits in its confidence, but the accuracy still improves, which is why the
+best checkpoint is selected on accuracy rather than on loss.
+
+### Exercise 3.1 — Efficient fine-tuning with LoRA
+
+[LoRA](https://huggingface.co/docs/peft/en/package_reference/lora), from the HuggingFace
+[PEFT](https://huggingface.co/docs/peft/en/index) library, keeps all the pre-trained weights frozen
+and learns a low-rank update $\Delta W = BA$ (rank $r = 8$) for the query and value projections of
+every attention layer. The classification head is new, so it is trained in full
+(`modules_to_save`). The training pipeline is the same as in Exercise 2: only the model, the learning
+rate (higher, 2e-4, as usual for LoRA) and the output folder change.
+
+<details>
+<summary><b>LoRA configuration and training</b> (click to expand)</summary>
+
+```python
+base_model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_NAME, num_labels=2,
+    id2label=dict(enumerate(label_names)), label2id={l: i for i, l in enumerate(label_names)},
+)
+
+lora_config = LoraConfig(
+    task_type=TaskType.SEQ_CLS,
+    r=8,
+    lora_alpha=16,
+    lora_dropout=0.1,
+    target_modules=["q_lin", "v_lin"],                 # query and value projections
+    modules_to_save=["pre_classifier", "classifier"],  # the new head is trained in full
+)
+peft_model = get_peft_model(base_model, lora_config)
+peft_model.print_trainable_parameters()
+# trainable params: 739,586 || all params: 67,694,596 || trainable%: 1.0925
+
+# Same TrainingArguments as Exercise 2, except for:
+#   output_dir="checkpoints/distilbert-lora-rotten-tomatoes", learning_rate=2e-4,
+#   run_name="distilbert_lora_r8" (W&B project "dla-lab3-es3.1")
+peft_trainer = Trainer(
+    model=peft_model,
+    args=peft_args,
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["validation"],
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+peft_train = peft_trainer.train()
+peft_val = peft_trainer.evaluate()
+peft_test = peft_trainer.evaluate(tokenized["test"], metric_key_prefix="test")
+```
+
+</details>
+
+Only **1.1% of the parameters** are trained (739,586), and most of them belong to the head: the LoRA
+matrices themselves are 147,456 parameters, 0.2% of the model.
+
+![Full fine-tuning vs LoRA — loss and validation accuracy per epoch](assets/lab3/lab3_epochs_full_vs_lora.png)
+
+With LoRA the validation loss decreases at every epoch (0.398 → 0.348 → 0.344): with so few free
+parameters the model does not overfit. The best checkpoint is the one of epoch 2.
+
+![Accuracy of the three approaches](assets/lab3/lab3_accuracy_comparison.png)
+
+| Method | Trained parameters | Val acc | Test acc | Training time |
+|---|---|---|---|---|
+| Frozen `[CLS]` + SVM | 0 (DistilBERT) | 0.8189 | 0.8068 | — |
+| Full fine-tuning | 67M (100%) | 0.8518 | 0.8424 | 81 s |
+| LoRA ($r = 8$) | 0.74M (1.1%) | 0.8443 | 0.8443 | 57 s |
+
+LoRA matches full fine-tuning: it is 0.8 points lower on the validation set and 0.2 points higher on
+the test set, differences that are within the noise of 1066-example splits. Training is 30% faster,
+since the forward pass still goes through the whole of DistilBERT; the larger saving is in memory and
+storage, because only the small adapter and the head need gradients, optimizer states and a saved
+checkpoint.
+

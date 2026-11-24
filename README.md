@@ -385,7 +385,7 @@ _, rewards_value, _ = train(standardize=False, value_baseline=True)
 
 </details>
 
-![REINFORCE on CartPole — comparison of baselines](assets/lab2/lab2_ex2_baselines.png)
+![REINFORCE on CartPole: comparison of baselines](assets/lab2/lab2_ex2_baselines.png)
 
 Without a baseline the policy collapses in the first episodes and never recovers. Standardization reaches 500 from episode
 275, but with several sudden collapses. The value network performs best: it reaches 500 already at
@@ -461,7 +461,7 @@ def reinforce(env, policy, num_episodes=1000, gamma=0.99, lr=1e-2, N=25, M=10,
 
 </details>
 
-![REINFORCE on Lunar Lander — evaluation metrics](assets/lab2/lab2_ex3_lunarlander_eval.png)
+![REINFORCE on Lunar Lander: evaluation metrics](assets/lab2/lab2_ex3_lunarlander_eval.png)
 
 The average reward grows from about −106, when the lander crashes within 90 steps, to the "solved"
 threshold, which it reaches once at episode 1800. After that it settles between 135 and 165,
@@ -477,7 +477,7 @@ landing bonus.
 
 
 
-## Lab 3 — Transformers and HuggingFace
+## Lab 3: Transformers and HuggingFace
 
 The lab builds a sentiment classifier on the
 [Rotten Tomatoes](https://huggingface.co/datasets/cornell-movie-review-data/rotten_tomatoes) movie
@@ -485,11 +485,10 @@ review dataset around [DistilBERT](https://huggingface.co/distilbert/distilbert-
 and compares three ways of using the pre-trained model: as a frozen feature extractor, fully
 fine-tuned, and fine-tuned efficiently with LoRA. The fine-tuning runs are logged on Weights & Biases.
 
-### Exercise 1 — A stable baseline
+### Exercise 1: A stable baseline
 
 **Dataset (1.1).** Rotten Tomatoes has three splits (8530 training, 1066 validation and 1066 test
-sentences) and two perfectly balanced classes, `neg` and `pos`. With balanced classes accuracy is a
-reliable metric, and it is used throughout the lab, also to select the best checkpoint.
+sentences) and two perfectly balanced classes, `neg` and `pos`.
 
 **Model and tokenizer (1.2).** The tokenizer splits each sentence into sub-word tokens and adds the
 special `[CLS]` and `[SEP]` tokens; with `padding=True` the sentences of a batch are padded to the
@@ -508,7 +507,6 @@ extractor = pipeline("feature-extraction", model=model, tokenizer=tokenizer, dev
 
 
 def extract_cls(split):
-    """[CLS] vector of the last layer for every sentence of the split, and the labels."""
     outs = extractor(KeyDataset(dataset[split], "text"), batch_size=64,
                      return_tensors=True, tokenize_kwargs={"truncation": True})
     X = np.stack([out[0, 0].cpu().numpy() for out in outs])
@@ -531,7 +529,7 @@ are never updated here, so this measures how useful the generic pre-trained repr
 is for sentiment classification: any gain of the following exercises comes from adapting the model to
 the task.
 
-### Exercise 2 — Fine-tuning DistilBERT
+### Exercise 2: Fine-tuning DistilBERT
 
 The splits are tokenized with `Dataset.map(..., batched=True)`, which adds `input_ids` and
 `attention_mask` to every example. Only truncation is applied at this stage: padding is left to a
@@ -615,7 +613,7 @@ class (recall 0.93, precision 0.76); precision and recall become balanced in the
 keeps falling: the model overfits in its confidence, but the accuracy still improves, which is why the
 best checkpoint is selected on accuracy rather than on loss.
 
-### Exercise 3.1 — Efficient fine-tuning with LoRA
+### Exercise 3.1: Efficient fine-tuning with LoRA
 
 [LoRA](https://huggingface.co/docs/peft/en/package_reference/lora), from the HuggingFace
 [PEFT](https://huggingface.co/docs/peft/en/index) library, keeps all the pre-trained weights frozen

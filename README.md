@@ -490,11 +490,46 @@ fine-tuned, and fine-tuned efficiently with LoRA. The fine-tuning runs are logge
 **Dataset (1.1).** Rotten Tomatoes has three splits (8530 training, 1066 validation and 1066 test
 sentences) and two perfectly balanced classes, `neg` and `pos`.
 
+<details>
+<summary><b>Loading the dataset</b> (click to expand)</summary>
+
+```python
+DATASET = "cornell-movie-review-data/rotten_tomatoes"
+dataset = load_dataset(DATASET)
+label_names = dataset["train"].features["label"].names  # ["neg", "pos"]
+
+for split in dataset:
+    counts = Counter(dataset[split]["label"])
+    print(f"{split}: {len(dataset[split])} sentences | "
+          + " | ".join(f"{label_names[k]}: {counts[k]}" for k in sorted(counts)))
+```
+
+</details>
+
 **Model and tokenizer (1.2).** The tokenizer splits each sentence into sub-word tokens and adds the
 special `[CLS]` and `[SEP]` tokens; with `padding=True` the sentences of a batch are padded to the
 longest one, and the `attention_mask` marks the padding positions. DistilBERT returns a
 768-dimensional vector for every token (`last_hidden_state` has shape `(batch, tokens, 768)`), and the
 vector of the first token, `[CLS]`, is used as a summary of the whole sentence.
+
+<details>
+<summary><b>Tokenizer and model</b> (click to expand)</summary>
+
+```python
+MODEL_NAME = "distilbert/distilbert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModel.from_pretrained(MODEL_NAME).to(device).eval()  # encoder without a classification head
+
+samples = dataset["train"][:3]["text"]
+inputs = tokenizer(samples, padding=True, truncation=True, return_tensors="pt").to(device)
+with torch.no_grad():
+    outputs = model(**inputs)
+
+print(outputs.last_hidden_state.shape)        # (3, tokens, 768)
+print(outputs.last_hidden_state[:, 0].shape)  # [CLS] vectors: (3, 768)
+```
+
+</details>
 
 **Baseline (1.3).** A `feature-extraction` pipeline extracts the `[CLS]` vector of the last layer of
 the frozen DistilBERT for every sentence, and a linear SVM is trained on top of these features.

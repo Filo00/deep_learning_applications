@@ -564,18 +564,15 @@ are never updated here, so this measures how useful the generic pre-trained repr
 is for sentiment classification: any gain of the following exercises comes from adapting the model to
 the task.
 
-### Exercise 2: Fine-tuning DistilBERT
+### Exercise 2.1: Token preprocessing
 
-The splits are tokenized with `Dataset.map(..., batched=True)`, which adds `input_ids` and
-`attention_mask` to every example. Only truncation is applied at this stage: padding is left to a
-`DataCollatorWithPadding`, which pads each batch to its longest sentence. The model is
-`AutoModelForSequenceClassification`, which adds to DistilBERT a new, randomly initialized
-classification head (`pre_classifier` + `classifier`) on top of the `[CLS]` token. It is trained end
-to end for 3 epochs with the HuggingFace `Trainer`, evaluating accuracy, precision, recall and F1 on
-the validation set after every epoch and restoring at the end the checkpoint with the best accuracy.
+The three splits are tokenized with `Dataset.map(..., batched=True)`, which processes the sentences
+in batches and adds `input_ids` and `attention_mask` to every example, next to `text` and `label`.
+Only truncation is applied here: padding is left to the data collator of Exercise 2.3, which pads
+each batch to its longest sentence instead of the whole dataset to the longest one.
 
 <details>
-<summary><b>Tokenization, model and Trainer</b> (click to expand)</summary>
+<summary><b>Tokenization</b> (click to expand)</summary>
 
 ```python
 def tokenize(batch):
@@ -583,13 +580,40 @@ def tokenize(batch):
 
 
 tokenized = dataset.map(tokenize, batched=True)
+```
 
+</details>
+
+### Exercise 2.2: A classification model
+
+`AutoModelForSequenceClassification` loads the same pre-trained DistilBERT and adds a new
+classification head on top of the `[CLS]` token: a `pre_classifier` layer (768 → 768) and a
+`classifier` layer (768 → 2). The head is not part of the pre-trained checkpoint, so it is randomly
+initialized and has to be trained, as the warning printed by `transformers` points out.
+
+<details>
+<summary><b>Classification model</b> (click to expand)</summary>
+
+```python
 ft_model = AutoModelForSequenceClassification.from_pretrained(
     MODEL_NAME, num_labels=2,
     id2label=dict(enumerate(label_names)),
     label2id={name: i for i, name in enumerate(label_names)},
 ).to(device)
+```
 
+</details>
+
+### Exercise 2.3: Fine-tuning DistilBERT
+
+The model is trained end to end for 3 epochs with the HuggingFace `Trainer`, evaluating accuracy,
+precision, recall and F1 on the validation set after every epoch and restoring at the end the
+checkpoint with the best accuracy.
+
+<details>
+<summary><b>Data collator, metrics and Trainer</b> (click to expand)</summary>
+
+```python
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
 
